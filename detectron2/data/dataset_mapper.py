@@ -128,6 +128,9 @@ class DatasetMapper:
             instances = utils.annotations_to_instances(
                 annos, image_shape, mask_format=self.mask_format
             )
+            # print('-------------------------------')
+            # print(instances)
+            # print('-------------------------------')
             # Create a tight bounding box from masks, useful when image is cropped
             if self.crop_gen and instances.has("gt_masks"):
                 instances.gt_boxes = instances.gt_masks.get_bounding_boxes()

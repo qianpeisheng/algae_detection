@@ -33,12 +33,12 @@ _C.MODEL.WEIGHTS = ""
 
 # Values to be used for image normalization (BGR order)
 # Default values are the mean pixel value from ImageNet: [103.53, 116.28, 123.675]
-_C.MODEL.PIXEL_MEAN = [103.530, 116.280, 123.675]
+# _C.MODEL.PIXEL_MEAN = [103.530, 116.280, 123.675]
+_C.MODEL.PIXEL_MEAN = [147.247, 167.759, 196.591] # BGR
 # When using pre-trained models in Detectron1 or any MSRA models,
 # std has been absorbed into its conv1 weights, so the std needs to be set 1.
 # Otherwise, you can use [57.375, 57.120, 58.395] (ImageNet std)
 _C.MODEL.PIXEL_STD = [1.0, 1.0, 1.0]
-
 
 # -----------------------------------------------------------------------------
 # INPUT
@@ -57,7 +57,9 @@ _C.INPUT.MIN_SIZE_TEST = 800
 _C.INPUT.MAX_SIZE_TEST = 1333
 
 # `True` if cropping is used for data augmentation during training
-_C.INPUT.CROP = CN({"ENABLED": False})
+# _C.INPUT.CROP = CN({"ENABLED": False})
+_C.INPUT.CROP = CN({"ENABLED": True})
+
 # Cropping type:
 # - "relative" crop (H * CROP.SIZE[0], W * CROP.SIZE[1]) part of an input of size (H, W)
 # - "relative_range" uniformly sample relative crop size from between [CROP.SIZE[0], [CROP.SIZE[1]].
@@ -122,8 +124,8 @@ _C.MODEL.BACKBONE = CN()
 
 _C.MODEL.BACKBONE.NAME = "build_resnet_backbone"
 # Add StopGrad at a specified stage so the bottom layers are frozen
-_C.MODEL.BACKBONE.FREEZE_AT = 2
-
+# _C.MODEL.BACKBONE.FREEZE_AT = 2
+_C.MODEL.BACKBONE.FREEZE_AT = 0
 
 # ---------------------------------------------------------------------------- #
 # FPN options
@@ -170,7 +172,8 @@ _C.MODEL.ANCHOR_GENERATOR.SIZES = [[32, 64, 128, 256, 512]]
 # to use for IN_FEATURES[i]; len(ASPECT_RATIOS) == len(IN_FEATURES) must be true,
 # or len(ASPECT_RATIOS) == 1 is true and aspect ratio list ASPECT_RATIOS[0] is used
 # for all IN_FEATURES.
-_C.MODEL.ANCHOR_GENERATOR.ASPECT_RATIOS = [[0.5, 1.0, 2.0]]
+# _C.MODEL.ANCHOR_GENERATOR.ASPECT_RATIOS = [[0.5, 1.0, 2.0]]
+_C.MODEL.ANCHOR_GENERATOR.ASPECT_RATIOS = [[0.25, 0.5, 1.0, 2.0, 4.0]]
 # Anchor angles.
 # list[float], the angle in degrees, for each input feature map.
 # ANGLES[i] specifies the list of angles for IN_FEATURES[i].
@@ -521,7 +524,7 @@ _C.TEST = CN()
 _C.TEST.EXPECTED_RESULTS = []
 # The period (in terms of steps) to evaluate the model during training.
 # Set to 0 to disable.
-_C.TEST.EVAL_PERIOD = 0
+_C.TEST.EVAL_PERIOD = 500
 # The sigmas used to calculate keypoint OKS.
 # When empty it will use the defaults in COCO.
 # Otherwise it should have the same length as ROI_KEYPOINT_HEAD.NUM_KEYPOINTS.
@@ -531,6 +534,7 @@ _C.TEST.KEYPOINT_OKS_SIGMAS = []
 _C.TEST.DETECTIONS_PER_IMAGE = 100
 
 _C.TEST.AUG = CN({"ENABLED": False})
+# _C.TEST.AUG = CN({"ENABLED": True})
 _C.TEST.AUG.MIN_SIZES = (400, 500, 600, 700, 800, 900, 1000, 1100, 1200)
 _C.TEST.AUG.MAX_SIZE = 4000
 _C.TEST.AUG.FLIP = True
@@ -546,7 +550,7 @@ _C.OUTPUT_DIR = "./output"
 # Set seed to negative to fully randomize everything.
 # Set seed to positive to use a fixed seed. Note that a fixed seed does not
 # guarantee fully deterministic behavior.
-_C.SEED = -1
+_C.SEED = 42
 # Benchmark different cudnn algorithms. It has large overhead for about 10k
 # iterations. It usually hurts total time, but can benefit for certain models.
 _C.CUDNN_BENCHMARK = False

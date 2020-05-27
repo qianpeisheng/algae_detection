@@ -124,7 +124,7 @@ class FastRCNNOutputs(object):
     """
 
     def __init__(
-        self, box2box_transform, pred_class_logits, pred_proposal_deltas, proposals, smooth_l1_beta
+        self, box2box_transform, pred_class_logits, pred_proposal_deltas, pred_parent_class_logits, proposals, smooth_l1_beta
     ):
         """
         Args:
@@ -150,6 +150,10 @@ class FastRCNNOutputs(object):
         self.box2box_transform = box2box_transform
         self.num_preds_per_image = [len(p) for p in proposals]
         self.pred_class_logits = pred_class_logits
+
+        # add parent class
+        self.pred_parent_class_logits = pred_parent_class_logits
+        
         self.pred_proposal_deltas = pred_proposal_deltas
         self.smooth_l1_beta = smooth_l1_beta
 
@@ -164,6 +168,8 @@ class FastRCNNOutputs(object):
             self.gt_boxes = box_type.cat([p.gt_boxes for p in proposals])
             assert proposals[0].has("gt_classes")
             self.gt_classes = cat([p.gt_classes for p in proposals], dim=0)
+            assert proposals[0].has("parent_gt_classes")
+            self.parent_gt_classes = cat([p.parent_gt_classes for p in proposals], dim=0)
 
     def _log_accuracy(self):
         """
@@ -171,22 +177,36 @@ class FastRCNNOutputs(object):
         """
         num_instances = self.gt_classes.numel()
         pred_classes = self.pred_class_logits.argmax(dim=1)
+
+        # add parent
+        pred_parent_classes = self.pred_parent_class_logits.argmax(dim=1)
+        
         bg_class_ind = self.pred_class_logits.shape[1] - 1
+        parent_bg_class_ind = self.pred_parent_class_logits.shape[1] - 1
 
         fg_inds = (self.gt_classes >= 0) & (self.gt_classes < bg_class_ind)
+        parent_fg_inds = (self.parent_gt_classes >= 0) & (self.parent_gt_classes < parent_bg_class_ind)
         num_fg = fg_inds.nonzero().numel()
         fg_gt_classes = self.gt_classes[fg_inds]
+        parent_fg_gt_classes = self.parent_gt_classes[fg_inds]
         fg_pred_classes = pred_classes[fg_inds]
+        fg_pred_parent_classes = pred_parent_classes[fg_inds]
 
         num_false_negative = (fg_pred_classes == bg_class_ind).nonzero().numel()
+        parent_num_false_negative = (fg_pred_parent_classes == parent_bg_class_ind).nonzero().numel()
         num_accurate = (pred_classes == self.gt_classes).nonzero().numel()
+        parent_num_accurate = (pred_parent_classes == self.parent_gt_classes).nonzero().numel()
         fg_num_accurate = (fg_pred_classes == fg_gt_classes).nonzero().numel()
+        parent_fg_num_accurate = (fg_pred_classes == parent_fg_gt_classes).nonzero().numel()
 
         storage = get_event_storage()
         storage.put_scalar("fast_rcnn/cls_accuracy", num_accurate / num_instances)
+        storage.put_scalar("fast_rcnn/parent_cls_accuracy", parent_num_accurate / num_instances)
         if num_fg > 0:
             storage.put_scalar("fast_rcnn/fg_cls_accuracy", fg_num_accurate / num_fg)
+            storage.put_scalar("fast_rcnn/parent_fg_cls_accuracy", parent_fg_num_accurate / num_fg)
             storage.put_scalar("fast_rcnn/false_negative", num_false_negative / num_fg)
+            storage.put_scalar("fast_rcnn/parent_false_negative", parent_num_false_negative / num_fg)
 
     def softmax_cross_entropy_loss(self):
         """
@@ -197,6 +217,16 @@ class FastRCNNOutputs(object):
         """
         self._log_accuracy()
         return F.cross_entropy(self.pred_class_logits, self.gt_classes, reduction="mean")
+    
+    def parent_softmax_cross_entropy_loss(self):
+        """
+        Compute the softmax cross entropy loss for box classification.
+
+        Returns:
+            scalar Tensor
+        """
+        self._log_accuracy()
+        return 0.5 * F.cross_entropy(self.pred_parent_class_logits, self.parent_gt_classes, reduction="mean")
 
     def smooth_l1_loss(self):
         """
@@ -265,6 +295,7 @@ class FastRCNNOutputs(object):
         return {
             "loss_cls": self.softmax_cross_entropy_loss(),
             "loss_box_reg": self.smooth_l1_loss(),
+            "loss_parent_cls": self.parent_softmax_cross_entropy_loss(),            
         }
 
     def predict_boxes(self):
@@ -319,7 +350,7 @@ class FastRCNNOutputLayers(nn.Module):
       (2) classification scores
     """
 
-    def __init__(self, input_size, num_classes, cls_agnostic_bbox_reg, box_dim=4):
+    def __init__(self, input_size, num_classes, cls_agnostic_bbox_reg, box_dim=4, num_parent_classes=6):
         """
         Args:
             input_size (int): channels, or (channels, height, width)
@@ -336,17 +367,26 @@ class FastRCNNOutputLayers(nn.Module):
         # The prediction layer for num_classes foreground classes and one background class
         # (hence + 1)
         self.cls_score = nn.Linear(input_size, num_classes + 1)
+
+        # classification for parents
+        self.parent_cls_score = nn.Linear(input_size, num_parent_classes + 1)
+
         num_bbox_reg_classes = 1 if cls_agnostic_bbox_reg else num_classes
         self.bbox_pred = nn.Linear(input_size, num_bbox_reg_classes * box_dim)
 
         nn.init.normal_(self.cls_score.weight, std=0.01)
+        
+        # init for parents
+        nn.init.normal_(self.parent_cls_score.weight, std=0.01)
+        
         nn.init.normal_(self.bbox_pred.weight, std=0.001)
-        for l in [self.cls_score, self.bbox_pred]:
+        for l in [self.cls_score, self.bbox_pred, self.parent_cls_score]:
             nn.init.constant_(l.bias, 0)
 
     def forward(self, x):
         if x.dim() > 2:
             x = torch.flatten(x, start_dim=1)
         scores = self.cls_score(x)
+        parent_scores = self.parent_cls_score(x)
         proposal_deltas = self.bbox_pred(x)
-        return scores, proposal_deltas
+        return scores, proposal_deltas, parent_scores

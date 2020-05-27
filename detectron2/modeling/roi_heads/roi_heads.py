@@ -155,7 +155,7 @@ class ROIHeads(torch.nn.Module):
         # Box2BoxTransform for bounding box regression
         self.box2box_transform = Box2BoxTransform(weights=cfg.MODEL.ROI_BOX_HEAD.BBOX_REG_WEIGHTS)
 
-    def _sample_proposals(self, matched_idxs, matched_labels, gt_classes):
+    def _sample_proposals(self, matched_idxs, matched_labels, gt_classes, parent_gt_classes):
         """
         Based on the matching between N proposals and M groundtruth,
         sample the proposals and set their classification labels.
@@ -174,6 +174,8 @@ class ROIHeads(torch.nn.Module):
                 [0, num_classes) or the background (num_classes).
         """
         has_gt = gt_classes.numel() > 0
+        # if has gt, confirm has parent_gt
+
         # Get the corresponding GT for each proposal
         if has_gt:
             gt_classes = gt_classes[matched_idxs]
@@ -181,15 +183,23 @@ class ROIHeads(torch.nn.Module):
             gt_classes[matched_labels == 0] = self.num_classes
             # Label ignore proposals (-1 label)
             gt_classes[matched_labels == -1] = -1
+
+            # do the same for parents
+            parent_gt_classes = parent_gt_classes[matched_idxs]
+            parent_gt_classes[matched_labels == 0] = 6 # self.num_classes
+            parent_gt_classes[matched_labels == -1] = -1
+
         else:
             gt_classes = torch.zeros_like(matched_idxs) + self.num_classes
+        
+            parent_gt_classes = torch.zeros_like(matched_idxs) + 6 # self.num_classes
 
         sampled_fg_idxs, sampled_bg_idxs = subsample_labels(
             gt_classes, self.batch_size_per_image, self.positive_sample_fraction, self.num_classes
         )
 
         sampled_idxs = torch.cat([sampled_fg_idxs, sampled_bg_idxs], dim=0)
-        return sampled_idxs, gt_classes[sampled_idxs]
+        return sampled_idxs, gt_classes[sampled_idxs], parent_gt_classes[sampled_idxs]
 
     @torch.no_grad()
     def label_and_sample_proposals(self, proposals, targets):
@@ -212,6 +222,8 @@ class ROIHeads(torch.nn.Module):
                   (this is only meaningful if the proposal has a label > 0; if label = 0
                    then the ground-truth box is random)
                 Other fields such as "gt_classes", "gt_masks", that's included in `targets`.
+
+                add parent classes
         """
         gt_boxes = [x.gt_boxes for x in targets]
         # Augment proposals with ground-truth boxes.
@@ -238,13 +250,16 @@ class ROIHeads(torch.nn.Module):
                 targets_per_image.gt_boxes, proposals_per_image.proposal_boxes
             )
             matched_idxs, matched_labels = self.proposal_matcher(match_quality_matrix)
-            sampled_idxs, gt_classes = self._sample_proposals(
-                matched_idxs, matched_labels, targets_per_image.gt_classes
+            sampled_idxs, gt_classes, parent_gt_classes = self._sample_proposals(
+                matched_idxs, matched_labels, targets_per_image.gt_classes, targets_per_image.parent_gt_classes
             )
 
             # Set target attributes of the sampled proposals:
             proposals_per_image = proposals_per_image[sampled_idxs]
             proposals_per_image.gt_classes = gt_classes
+            
+            # add parent_gt_classes
+            proposals_per_image.parent_gt_classes = parent_gt_classes
 
             # We index all the attributes of targets that start with "gt_"
             # and have not been added to proposals yet (="gt_classes").
@@ -590,7 +605,7 @@ class StandardROIHeads(ROIHeads):
                 fields such as `pred_masks` or `pred_keypoints`.
         """
         assert not self.training
-        assert instances[0].has("pred_boxes") and instances[0].has("pred_classes")
+        assert instances[0].has("pred_boxes") and instances[0].has("pred_classes") # TODO add prediction of parent class during test
         features = [features[f] for f in self.in_features]
 
         instances = self._forward_mask(features, instances)
@@ -614,18 +629,27 @@ class StandardROIHeads(ROIHeads):
         """
         box_features = self.box_pooler(features, [x.proposal_boxes for x in proposals])
         box_features = self.box_head(box_features)
-        pred_class_logits, pred_proposal_deltas = self.box_predictor(box_features)
+        pred_class_logits, pred_proposal_deltas, pred_parent_class_logits = self.box_predictor(box_features)
         del box_features
 
         outputs = FastRCNNOutputs(
             self.box2box_transform,
             pred_class_logits,
             pred_proposal_deltas,
+            pred_parent_class_logits,
             proposals,
             self.smooth_l1_beta,
         )
         if self.training:
-            return outputs.losses()
+            threshold = 1
+            losses = outputs.losses()
+            
+            # print([(k ,f'{v.item():.6f}') for k, v in losses.items()])
+                # if v.item() > threshold:
+                #     v = v * 0
+                #     print('updated')
+                # print(k.ljust(15, ' ') ,f'{v.item():.6f}')
+            return losses
         else:
             pred_instances, _ = outputs.inference(
                 self.test_score_thresh, self.test_nms_thresh, self.test_detections_per_img

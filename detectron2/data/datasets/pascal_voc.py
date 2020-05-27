@@ -14,11 +14,78 @@ __all__ = ["register_pascal_voc"]
 
 
 # fmt: off
+# CLASS_NAMES = [
+#     "aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car", "cat",
+#     "chair", "cow", "diningtable", "dog", "horse", "motorbike", "person",
+#     "pottedplant", "sheep", "sofa", "train", "tvmonitor",
+# ]
 CLASS_NAMES = [
-    "aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car", "cat",
-    "chair", "cow", "diningtable", "dog", "horse", "motorbike", "person",
-    "pottedplant", "sheep", "sofa", "train", "tvmonitor",
+'Cymbella',
+'Navicula',
+'Synedra',
+'Achnanthes',
+'Scenedesmus',
+'Pediastrum',
+'Diatoma',
+'Cyclotella',
+'Nitzschia',
+'Melosira',
+'Cryptophyceae',
+'Cocconeis',
+'Pseudoanabaena',
+'Eudorina',
+'Coelastrum',
+'Fragilaria harrissonii',
+'else',
+'Microcystis',
+'Oscillatoria',
+'Sphaerocystis',
+'Pandorina',
+'Aphanizomenon',
+'Merismopedia',
+'Melosire granulata',
+'Cosmarium',
+'Gomphonema',
+'Lyngbya',
 ]
+
+PARENT_CLASS_NAMES = [
+'Cyanophyta',
+'Cryptophyceae',
+'Bacillariophyta',
+'Chlorphyta',
+'Cyanobacteria',
+'Others'
+]
+CLS_TO_PARENT = {
+    'Cymbella': 'Bacillariophyta',
+    'Navicula': 'Bacillariophyta',
+    'Synedra': 'Bacillariophyta',
+    'Achnanthes': 'Bacillariophyta',
+    'Scenedesmus': 'Chlorphyta',
+    'Pediastrum': 'Chlorphyta',
+    'Diatoma': 'Bacillariophyta',
+    'Cyclotella': 'Bacillariophyta',
+    'Nitzschia': 'Bacillariophyta',
+    'Melosira': 'Bacillariophyta',
+    'Cryptophyceae': 'Cryptophyceae',
+    'Cocconeis': 'Bacillariophyta',
+    'Pseudoanabaena': 'Others',
+    'Eudorina': 'Chlorphyta',
+    'Coelastrum': 'Chlorphyta',
+    'Fragilaria harrissonii': 'Others',
+    'else': 'Others',
+    'Microcystis': 'Cyanobacteria',
+    'Oscillatoria': 'Cyanobacteria',
+    'Sphaerocystis': 'Chlorphyta',
+    'Pandorina': 'Chlorphyta',
+    'Aphanizomenon': 'Cyanophyta',
+    'Merismopedia': 'Cyanophyta',
+    'Melosire granulata': 'Others',
+    'Cosmarium': 'Chlorphyta',
+    'Gomphonema': 'Bacillariophyta',
+    'Lyngbya': 'Cyanophyta',
+}
 # fmt: on
 
 
@@ -64,12 +131,12 @@ def load_voc_instances(dirname: str, split: str):
             bbox[0] -= 1.0
             bbox[1] -= 1.0
             instances.append(
-                {"category_id": CLASS_NAMES.index(cls), "bbox": bbox, "bbox_mode": BoxMode.XYXY_ABS}
+                {"category_id": CLASS_NAMES.index(cls), "bbox": bbox, "bbox_mode": BoxMode.XYXY_ABS,
+                'parent': PARENT_CLASS_NAMES.index(CLS_TO_PARENT[cls])}
             )
         r["annotations"] = instances
         dicts.append(r)
     return dicts
-
 
 def register_pascal_voc(name, dirname, split, year):
     DatasetCatalog.register(name, lambda: load_voc_instances(dirname, split))

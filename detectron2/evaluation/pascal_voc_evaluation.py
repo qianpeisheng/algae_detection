@@ -73,20 +73,21 @@ class PascalVOCDetectionEvaluator(DatasetEvaluator):
             for clsid, lines in predictions_per_rank.items():
                 predictions[clsid].extend(lines)
         del all_predictions
-
         self._logger.info(
             "Evaluating {} using {} metric. "
             "Note that results do not use the official Matlab API.".format(
                 self._dataset_name, 2007 if self._is_2007 else 2012
             )
         )
-
+        cls_matched = {}
         with tempfile.TemporaryDirectory(prefix="pascal_voc_eval_") as dirname:
             res_file_template = os.path.join(dirname, "{}.txt")
 
             aps = defaultdict(list)  # iou -> ap per class
             for cls_id, cls_name in enumerate(self._class_names):
                 lines = predictions.get(cls_id, [""])
+                if (cls_id, cls_name) not in cls_matched:
+                    cls_matched[(cls_id, cls_name)] = []
 
                 with open(res_file_template.format(cls_name), "w") as f:
                     f.write("\n".join(lines))
@@ -101,12 +102,16 @@ class PascalVOCDetectionEvaluator(DatasetEvaluator):
                         use_07_metric=self._is_2007,
                     )
                     aps[thresh].append(ap * 100)
+                    cls_matched[(cls_id, cls_name)].append((thresh, ap * 100))
 
         ret = OrderedDict()
         mAP = {iou: np.mean(x) for iou, x in aps.items()}
         ret["bbox"] = {"AP": np.mean(list(mAP.values())), "AP50": mAP[50], "AP75": mAP[75]}
+        print(aps, 'aps')
+        for k, v in cls_matched.items():
+            print(k[1], f'{v[0][1]:.3f}')
+        # print(cls_matched, 'cls_matched')
         return ret
-
 
 ##############################################################################
 #
@@ -242,6 +247,9 @@ def voc_eval(detpath, annopath, imagesetfile, classname, ovthresh=0.5, use_07_me
     nd = len(image_ids)
     tp = np.zeros(nd)
     fp = np.zeros(nd)
+
+    cls_matched = {}
+    low_ovthresh = 0.4
     for d in range(nd):
         R = class_recs[image_ids[d]]
         bb = BB[d, :].astype(float)
@@ -288,5 +296,10 @@ def voc_eval(detpath, annopath, imagesetfile, classname, ovthresh=0.5, use_07_me
     # ground truth
     prec = tp / np.maximum(tp + fp, np.finfo(np.float64).eps)
     ap = voc_ap(rec, prec, use_07_metric)
-
+    # print(tp, 'tp')
+    # print(fp, 'fp')
+    # print(rec, 'rec')
+    # print(prec, 'prec')
+    # print('.........................')
+    # print(ap, 'ap')
     return rec, prec, ap

@@ -222,6 +222,9 @@ class SimpleTrainer(TrainerBase):
         wrap the optimizer with your custom `zero_grad()` method.
         """
         self.optimizer.zero_grad()
+        # after adding parent class, gradient may explode
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1)
+
         losses.backward()
 
         """
